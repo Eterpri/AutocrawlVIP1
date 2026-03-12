@@ -128,9 +128,15 @@ const App: React.FC = () => {
   const getAvailableApiKey = useCallback(() => {
     const now = Date.now();
     const sysKey = process.env.API_KEY;
-    if (sysKey && !keyCooldowns[sysKey]) return sysKey;
+    
+    // Check system key first if it's not in cooldown
+    if (sysKey && (!keyCooldowns[sysKey] || keyCooldowns[sysKey] < now)) return sysKey;
+    
+    // Then check user keys
     const available = apiKeys.find(k => !keyCooldowns[k] || keyCooldowns[k] < now);
-    return available || sysKey || null;
+    if (available) return available;
+    
+    return null;
   }, [apiKeys, keyCooldowns]);
 
   const markKeyAsCooldown = (key: string, duration: number = 60000) => {
@@ -442,7 +448,15 @@ const App: React.FC = () => {
                 return c;
             }) } : p));
         } catch (e: any) {
-            if (e.status === 429 || e.message?.includes("Resource has been exhausted") || e.message?.includes("429")) {
+            const status = e.status || e.response?.status || 0;
+            const errorMsg = e.message || "";
+            const isQuotaError = status === 429 || 
+                               errorMsg.includes("429") || 
+                               errorMsg.includes("quota") || 
+                               errorMsg.includes("Resource has been exhausted") ||
+                               errorMsg.includes("rate limit");
+
+            if (isQuotaError) {
                 markKeyAsCooldown(apiKey, 60000); 
                 addToast("Key hiện tại đạt giới hạn, tự động chuyển sang Key tiếp theo...", "info");
                 setProcessingQueue(prev => [...batchIds, ...prev]);

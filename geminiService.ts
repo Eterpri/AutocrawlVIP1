@@ -115,11 +115,22 @@ QUY TẮC BẮT BUỘC:
                         success = true;
                         break;
                     } catch (error: any) {
-                        const status = error.status || 0;
+                        const status = error.status || error.response?.status || 0;
                         errorMsg = error.message || "Lỗi không xác định";
                         
-                        // Nếu lỗi 429 hoặc quota, ném ra để App xử lý xoay Key
-                        if (status === 429 || errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("Resource has been exhausted")) {
+                        const isQuotaError = status === 429 || 
+                                           errorMsg.includes("429") || 
+                                           errorMsg.includes("quota") || 
+                                           errorMsg.includes("Resource has been exhausted") ||
+                                           errorMsg.includes("rate limit");
+
+                        if (isQuotaError) {
+                            // Record in quota manager as well
+                            if (errorMsg.includes("quota") || errorMsg.includes("Resource has been exhausted")) {
+                                quotaManager.markAsDepleted(modelId);
+                            } else {
+                                quotaManager.recordRateLimit(modelId);
+                            }
                             throw error; 
                         }
                         
