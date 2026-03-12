@@ -168,8 +168,24 @@ export const analyzeStoryContext = async (
             contents: `${GLOSSARY_ANALYSIS_PROMPT}\n\nTRUYỆN: ${storyInfo.title}\nNỘI DUNG:\n${sampleText}`,
             config: { temperature: 0.2 }
         });
+        quotaManager.recordRequest(modelId);
         return response.text || "";
     } catch (e: any) {
+        const status = e.status || e.response?.status || 0;
+        const errorMsg = e.message || "";
+        const isQuotaError = status === 429 || 
+                           errorMsg.includes("429") || 
+                                           errorMsg.includes("quota") || 
+                                           errorMsg.includes("Resource has been exhausted") ||
+                                           errorMsg.includes("rate limit");
+
+        if (isQuotaError) {
+            if (errorMsg.includes("quota") || errorMsg.includes("Resource has been exhausted")) {
+                quotaManager.markAsDepleted(modelId);
+            } else {
+                quotaManager.recordRateLimit(modelId);
+            }
+        }
         throw e;
     }
 };

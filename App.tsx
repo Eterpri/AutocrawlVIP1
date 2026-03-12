@@ -195,22 +195,53 @@ const App: React.FC = () => {
 
   const handleAIAnalyze = async () => {
     if (!currentProject) return;
-    const key = getAvailableApiKey();
-    if (!key) { addToast("Hết API Key khả dụng. Vui lòng thêm hoặc chờ cooldown.", "error"); return; }
-
+    
     setIsAnalyzing(true);
-    try {
-        const result = await analyzeStoryContext(currentProject.chapters, currentProject.info, key);
-        updateProject(currentProject.id, { globalContext: result });
-        addToast("Phân tích AI hoàn tất!", "success");
-    } catch (e: any) {
-        if (e.status === 429 || e.message?.includes("Resource has been exhausted")) {
-          markKeyAsCooldown(key, 300000); 
-          addToast("Key hiện tại hết quota, vui lòng thử lại sau giây lát.", "warning");
+    let success = false;
+    const triedKeys = new Set<string>();
+
+    while (!success) {
+        const now = Date.now();
+        const sysKey = process.env.API_KEY;
+        let key: string | null = null;
+
+        // Manual selection logic to avoid stale closure of keyCooldowns
+        if (sysKey && !triedKeys.has(sysKey) && (!keyCooldowns[sysKey] || keyCooldowns[sysKey] < now)) {
+            key = sysKey;
         } else {
-          addToast(e.message, "error");
+            key = apiKeys.find(k => !triedKeys.has(k) && (!keyCooldowns[k] || keyCooldowns[k] < now)) || null;
         }
-    } finally { setIsAnalyzing(false); }
+
+        if (!key) {
+            addToast("Hết API Key khả dụng. Vui lòng thêm hoặc chờ cooldown.", "error");
+            break;
+        }
+
+        try {
+            const result = await analyzeStoryContext(currentProject.chapters, currentProject.info, key);
+            updateProject(currentProject.id, { globalContext: result });
+            addToast("Phân tích AI hoàn tất!", "success");
+            success = true;
+        } catch (e: any) {
+            const status = e.status || e.response?.status || 0;
+            const errorMsg = e.message || "";
+            const isQuotaError = status === 429 || 
+                               errorMsg.includes("429") || 
+                               errorMsg.includes("quota") || 
+                               errorMsg.includes("Resource has been exhausted") ||
+                               errorMsg.includes("rate limit");
+
+            if (isQuotaError) {
+                markKeyAsCooldown(key, 60000); 
+                triedKeys.add(key);
+                addToast("Key hiện tại đạt giới hạn, đang thử chuyển sang Key tiếp theo...", "info");
+            } else {
+                addToast(e.message, "error");
+                break;
+            }
+        }
+    }
+    setIsAnalyzing(false);
   };
 
   const createNewProject = async () => {
