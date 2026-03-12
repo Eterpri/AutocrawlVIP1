@@ -4,7 +4,7 @@ import { quotaManager } from './utils/quotaManager';
 import { MODEL_CONFIGS, GLOSSARY_ANALYSIS_PROMPT } from './constants';
 import { StoryInfo, FileItem } from './utils/types';
 
-const CHUNK_SIZE_LIMIT = 4000; 
+const CHUNK_SIZE_LIMIT = 15000; 
 const MAX_RETRY_ATTEMPTS = 2;
 
 /**
@@ -58,13 +58,12 @@ export const translateBatch = async (
     const finalResults = new Map<string, string>();
     let lastUsedModel = "";
 
-    const systemInstruction = `BẠN LÀ CHUYÊN GIA DỊCH THUẬT VĂN HỌC TRUNG-VIỆT.
-NHIỆM VỤ: Dịch đầy đủ nội dung, giữ nguyên phong cách, áp dụng từ điển. 
-
-QUY TẮC BẮT BUỘC:
-1. DÒNG ĐẦU TIÊN của bản dịch PHẢI là Tiêu đề chương đã dịch (VD: Chương 123: Tiêu đề).
-2. Toàn bộ nội dung còn lại dịch sát nghĩa, mượt mà, thuần Việt.
-3. KHÔNG Tóm tắt, KHÔNG bỏ sót bất kỳ đoạn nào.`;
+    const systemInstruction = `VAI TRÒ: Dịch giả văn học Trung-Việt chuyên nghiệp.
+NHIỆM VỤ: Dịch sát nghĩa, mượt mà, không bỏ sót.
+QUY TẮC:
+1. Dòng 1: Tiêu đề chương đã dịch.
+2. Nội dung: Dịch đầy đủ, thuần Việt.
+3. KHÔNG tóm tắt, KHÔNG thêm lời bình.`;
 
     for (const file of files) {
         const paragraphs = file.content.split('\n').filter(p => p.trim());
@@ -87,10 +86,10 @@ QUY TẮC BẮT BUỘC:
             const chunk = chunks[i];
             const isFirstChunk = i === 0;
             const contextPrompt = isFirstChunk 
-                ? "Dịch tiêu đề chương ở DÒNG 1, sau đó dịch nội dung." 
-                : "Tiếp tục dịch đoạn văn sau đây của chương.";
+                ? "Dịch tiêu đề ở dòng 1, sau đó dịch nội dung." 
+                : "Tiếp tục dịch đoạn văn sau.";
 
-            const fullPrompt = `[DICTIONARY]\n${relevantDictionary}\n\n[CONTEXT]\n${globalContext}\n\n[INSTRUCTION]\n${contextPrompt}\n\n[USER_PROMPT]\n${userPrompt}\n\n[RAW_CONTENT]\n${chunk}`;
+            const fullPrompt = `[DICT]\n${relevantDictionary}\n\n[CTX]\n${globalContext}\n\n[INST]\n${contextPrompt}\n${userPrompt}\n\n[RAW]\n${chunk}`;
             
             let success = false;
             let errorMsg = "";

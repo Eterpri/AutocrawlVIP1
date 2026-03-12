@@ -3,40 +3,23 @@ import { ModelQuota } from './utils/types';
 
 export const PROMPT_PRESETS = [
     {
-        name: "Mặc định (Dịch Sát Nghĩa & Đầy ĐỦ)",
-        content: `MỤC TIÊU: Dịch thuật nội dung truyện từ bản convert/tiếng Trung sang tiếng Việt một cách TRUNG THỰC, SÁT NGHĨA và ĐẦY ĐỦ 100%.
-
-**YÊU CẦU CỐT LÕI:**
-1. **Dịch không sót:** Không được tự ý tóm tắt hoặc bỏ qua bất kỳ đoạn văn nào. Mỗi dòng trong nguyên tác đều phải có dòng tương ứng trong bản dịch.
-2. **Sát nghĩa:** Ưu tiên truyền tải đúng ý nghĩa của tác giả. Không tự ý thêm thắt các tình tiết hoa mỹ không có trong gốc trừ khi cần thiết để câu văn trôi chảy.
-3. **Văn phong:** Sử dụng từ ngữ thuần Việt, mượt mà, phù hợp với thể loại truyện.
-4. **Xưng hô:** Nhất quán theo bảng từ điển và bối cảnh nhân vật.
-5. **Tiêu đề:** Đặt theo định dạng "Chương [Số]: [Tên chương]". Tên chương phải dịch sát với nghĩa gốc.
-
-**THÔNG TIN TRUYỆN:**
-- Tên: [{{TITLE}}]
-- Thể loại: [{{GENRE}}]
-- Tính cách Main: [{{PERSONALITY}}]
-- Bối cảnh: [{{SETTING}}]
-
-**QUY TẮC TRÌNH BÀY:**
-- Trả về duy nhất nội dung truyện đã dịch.
-- Không thêm bất kỳ lời bình luận hay chú thích nào của AI.
-- Chia đoạn rõ ràng theo cấu trúc của nguyên tác.
-`
+        name: "Mặc định (Tối ưu Quota)",
+        content: `MỤC TIÊU: Dịch thuật Trung-Việt trung thực, sát nghĩa, đầy đủ.
+YÊU CẦU:
+1. Không bỏ sót: Dịch 100% nội dung.
+2. Văn phong: Thuần Việt, mượt mà.
+3. Xưng hô: Nhất quán theo bối cảnh.
+4. Tiêu đề: "Chương [Số]: [Tên]".
+TRÌNH BÀY: Chỉ trả về nội dung dịch, không thêm lời bình.`
     },
     {
-        name: "Tiên Hiệp (Hoa Mỹ)",
-        content: `PROMPT DỊCH TIÊN HIỆP - HUYỀN HUYỄN (HOA MỸ)
-
-VAI TRÒ: Dịch giả chuyên dòng Tiên Hiệp, Huyền Huyễn.
-
+        name: "Tiên Hiệp (Gọn)",
+        content: `VAI TRÒ: Dịch giả Tiên Hiệp.
 YÊU CẦU:
-1. Sử dụng nhiều từ Hán Việt trang trọng để tạo không khí cổ kính, hào hùng.
-2. Xưng hô: Ta - Ngươi, Lão phu, Bổn tọa, Các hạ... theo đúng tôn ti trật tự trong truyện.
-3. Giữ nguyên tên chiêu thức, pháp bảo, cảnh giới ở dạng Hán Việt.
-4. KHÔNG ĐƯỢC BỎ SÓT NỘI DUNG. Dịch đầy đủ từng câu, từng chữ.
-`
+1. Dùng từ Hán Việt trang trọng.
+2. Xưng hô: Ta - Ngươi, Lão phu... đúng tôn ti.
+3. Giữ nguyên tên chiêu thức, pháp bảo Hán Việt.
+4. Dịch đầy đủ 100%, không bỏ sót.`
     }
 ];
 

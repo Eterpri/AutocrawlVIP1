@@ -11,8 +11,8 @@ import { replacePromptVariables } from './utils/textHelpers';
 import { saveProject, getAllProjects, deleteProject } from './utils/storage';
 import { quotaManager } from './utils/quotaManager';
 
-const MAX_CONCURRENCY = 1; 
-const BATCH_FILE_LIMIT = 1;
+const MAX_CONCURRENCY = 2; 
+const BATCH_FILE_LIMIT = 2;
 
 const getStatusLabel = (status: FileStatus) => {
     switch (status) {
