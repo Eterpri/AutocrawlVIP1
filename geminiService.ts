@@ -54,8 +54,23 @@ const optimizeDictionary = (dictionary: string, content: string): string => {
 const cleanupTranslatedText = (text: string, originalChapterName: string): string => {
     if (!text) return "";
     let lines = text.split('\n').map(l => l.trim()).filter(l => l !== "");
-    const JUNK_PATTERNS = [/đang đọc tại/i, /69shuba/i, /piaotian/i, /www\./i, /\.com/i];
-    lines = lines.filter(line => !JUNK_PATTERNS.some(p => p.test(line)));
+    
+    // Các mẫu rác thường gặp sau khi dịch
+    const JUNK_PATTERNS = [
+        /đang đọc tại/i, /69shuba/i, /piaotian/i, /www\./i, /\.com/i, /\.net/i, 
+        /truyện được dịch tại/i, /nguồn:/i, /chúc bạn đọc truyện vui vẻ/i,
+        /bấm vào đây để/i, /theo dõi fanpage/i, /69 thư ba/i, /69 thư bar/i,
+        /69 thư/i, /69shuba\.com/i, /69xinshu/i, /69shu/i
+    ];
+    
+    lines = lines.filter(line => {
+        // Nếu dòng quá ngắn và chứa pattern rác
+        if (line.length < 60 && JUNK_PATTERNS.some(p => p.test(line))) return false;
+        // Nếu dòng chứa URL
+        if (line.includes('http://') || line.includes('https://')) return false;
+        return true;
+    });
+    
     return lines.join('\n\n').trim();
 };
 
