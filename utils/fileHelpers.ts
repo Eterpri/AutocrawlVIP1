@@ -13,12 +13,14 @@ const PROXY_LIST = [
 const JUNK_PHRASES = [
     "重要声明", "本站", "版权归", "All rights reserved", "最新章节", "永久地址", 
     "网友发表", "来自搜索引擎", "本站立场无关", "www.", ".com", ".net", ".org",
-    "点击下一页", "继续阅读", "顶点小说", "笔趣阁", "69书吧", "飘天文学", "shubao", "paoshu",
+    "点击下一页", "继续阅读", "顶点小说", "笔趣阁", "69书吧", "69shuba", "飘天文学", "shubao", "paoshu",
     "手机用户请访问", "推荐阅读", "sodu", "txt下载", "chm下载", "uukanshu", "biquge",
-    "content_bottom", "content_top", "read_ads", "read-ads", "center-ads", "piaotian"
+    "content_bottom", "content_top", "read_ads", "read-ads", "center-ads", "piaotian",
+    "请记住", "域名", "收藏本站", "报错", "催更", "加入书架", "投推荐票", "上一章", "返回目录", "下一章",
+    "69xinshu", "69shu", "无弹窗", "全文阅读", "txt全文", "笔趣", "顶点", "小说网"
 ];
 
-const PAGINATION_KEYWORDS = ["下一页", "下一頁", "next page", "2/2", "3/3", "2/3", "(2)", "(3)"];
+const PAGINATION_KEYWORDS = ["下一页", "下一頁", "next page", "2/2", "3/3", "2/3", "(2)", "(3)", "分段阅读"];
 
 /**
  * Chuyển đổi tiêu đề chương
@@ -45,7 +47,7 @@ export const translateChapterTitle = (title: string): string => {
 };
 
 const isChineseUrl = (url: string): boolean => {
-    const domains = ['.cn', '.com.cn', 'piaotia', '69shuba', 'biquge', 'shubao', 'paoshu', 'uukanshu', 'paoshu8', 'xbiquge', 'readwn', '69xinshu', 'ptwxz', '顶点', '笔趣阁'];
+    const domains = ['.cn', '.com.cn', 'piaotia', '69shuba', '69shu', 'biquge', 'shubao', 'paoshu', 'uukanshu', 'paoshu8', 'xbiquge', 'readwn', '69xinshu', 'ptwxz', '顶点', '笔趣阁', 'novel', 'read'];
     return domains.some(d => url.toLowerCase().includes(d));
 };
 
@@ -126,10 +128,14 @@ export const fetchContentFromUrl = async (url: string, isPaginationCall = false)
             const title = translateChapterTitle(h1?.innerText || doc.title?.split('_')[0] || "Chương mới");
 
             // 2. Dọn dẹp các thành phần rác (Ads, Scripts)
-            doc.querySelectorAll('script, style, iframe, ins, .ads, #ads, .author-say, .read-notice, .bottom-ad, [style*="display:none"], [style*="visibility:hidden"]').forEach(el => el.remove());
+            doc.querySelectorAll('script, style, iframe, ins, .ads, #ads, .author-say, .read-notice, .bottom-ad, .top-ad, .middle-ad, .footer-ad, .side-ad, .google-ad, [style*="display:none"], [style*="visibility:hidden"]').forEach(el => el.remove());
 
-            // 3. Tìm vùng nội dung (Piaotia dùng #content)
-            const selectors = ['#content', '#article', '#chaptercontent', '.content', '.showtxt', '.read-content', 'article'];
+            // 3. Tìm vùng nội dung (Piaotia dùng #content, 69shuba dùng .txtnav hoặc #txtnav)
+            const selectors = [
+                '.txtnav', '#txtnav', '#content', '#article', '#chaptercontent', 
+                '.content', '.showtxt', '.read-content', '.txt_cont', 'article', 
+                '#booktxt', '#htmlContent', '.book-content', '#read-content'
+            ];
             let container: HTMLElement | null = null;
             for (const s of selectors) {
                 const el = doc.querySelector(s) as HTMLElement;
@@ -142,8 +148,15 @@ export const fetchContentFromUrl = async (url: string, isPaginationCall = false)
 
             // Xử lý loại bỏ text rác lồng trong style (thay cho getComputedStyle)
             container.querySelectorAll('*').forEach(el => {
-                const styleAttr = el.getAttribute('style') || "";
-                if (styleAttr.includes('display:none') || styleAttr.includes('visibility:hidden') || styleAttr.includes('font-size:0')) {
+                const styleAttr = (el.getAttribute('style') || "").toLowerCase();
+                if (
+                    styleAttr.includes('display:none') || 
+                    styleAttr.includes('visibility:hidden') || 
+                    styleAttr.includes('font-size:0') ||
+                    styleAttr.includes('opacity:0') ||
+                    styleAttr.includes('left:-999') ||
+                    styleAttr.includes('text-indent:-999')
+                ) {
                     el.remove();
                 }
             });
@@ -154,12 +167,17 @@ export const fetchContentFromUrl = async (url: string, isPaginationCall = false)
             cloned.querySelectorAll('p').forEach(p => p.append('\n'));
 
             const rawText = cloned.innerText;
-            const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+            const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 1);
             
             // Lọc các dòng rác (Copyright, Link web...)
             const cleanLines = lines.filter(l => {
                 const lower = l.toLowerCase();
-                if (JUNK_PHRASES.some(j => lower.includes(j))) return false;
+                // Nếu dòng quá ngắn và chứa từ khóa rác, hoặc chứa URL
+                if (l.length < 50 && JUNK_PHRASES.some(j => lower.includes(j))) return false;
+                // Lọc các dòng chỉ chứa URL hoặc tên miền
+                if (lower.includes('www.') || lower.includes('.com') || lower.includes('.net')) {
+                    if (l.length < 40) return false;
+                }
                 if (lower === title.toLowerCase()) return false;
                 return true;
             });
@@ -178,12 +196,22 @@ export const fetchContentFromUrl = async (url: string, isPaginationCall = false)
 
                 const fullHref = resolveUrl(cleanUrl, href);
 
-                // Piaotia thường có "下一页" cho trang 2 của cùng 1 chương
-                if (PAGINATION_KEYWORDS.some(kw => text.includes(kw) && text.length < 10)) {
-                    // Nếu link có dạng _2.html hoặc gần giống link hiện tại -> Trang tiếp của chương
-                    if (fullHref.includes('_') || fullHref.length === cleanUrl.length) {
-                         innerNextPageUrl = fullHref;
+                // Kiểm tra xem có phải là trang tiếp theo của CÙNG 1 chương không
+                const isNextPageOfSameChapter = () => {
+                    if (!PAGINATION_KEYWORDS.some(kw => text.includes(kw) && text.length < 15)) return false;
+                    
+                    // Nếu link chứa dấu gạch dưới (thường là _2.html) hoặc có tham số phân trang
+                    if (fullHref.includes('_') || fullHref.includes('page=') || fullHref.includes('index_')) {
+                        // Đảm bảo phần đầu của URL giống nhau
+                        const basePart = cleanUrl.split(/[._?]/)[0];
+                        const nextBasePart = fullHref.split(/[._?]/)[0];
+                        return basePart === nextBasePart;
                     }
+                    return false;
+                };
+
+                if (isNextPageOfSameChapter()) {
+                    innerNextPageUrl = fullHref;
                 }
 
                 // Link chương thực sự tiếp theo
