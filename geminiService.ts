@@ -4,8 +4,15 @@ import { quotaManager } from './utils/quotaManager';
 import { MODEL_CONFIGS, GLOSSARY_ANALYSIS_PROMPT } from './constants';
 import { StoryInfo, FileItem } from './utils/types';
 
-const CHUNK_SIZE_LIMIT = 15000; 
+const CHUNK_SIZE_LIMIT = 10000; 
 const MAX_RETRY_ATTEMPTS = 2;
+
+const isMostlyChinese = (text: string): boolean => {
+    if (!text) return false;
+    const chineseChars = text.match(/[\u4e00-\u9fa5]/g) || [];
+    // If more than 10% of the text is Chinese characters, it's likely not translated
+    return (chineseChars.length / text.length) > 0.1; 
+};
 
 /**
  * Khởi tạo client AI với một API Key cụ thể.
@@ -107,6 +114,10 @@ QUY TẮC:
 
                         const output = response.text;
                         if (!output) throw new Error("AI trả về nội dung trống.");
+                        
+                        if (isMostlyChinese(output) && chunk.length > 100) {
+                            throw new Error("AI trả về nội dung chưa dịch (vẫn còn tiếng Trung).");
+                        }
 
                         translatedFullContent += (translatedFullContent ? "\n\n" : "") + output.trim();
                         lastUsedModel = modelId;
