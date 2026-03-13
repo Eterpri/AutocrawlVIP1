@@ -110,7 +110,10 @@ QUY TẮC:
             let errorMsg = "Không có phản hồi từ AI. Hãy kiểm tra kết nối mạng hoặc API Key.";
 
             for (const modelId of allowedModelIds) {
-                if (!quotaManager.isModelAvailable(modelId)) continue;
+                // We don't check quotaManager.isModelAvailable here because the caller (App.tsx) 
+                // should have picked an available key/model combo.
+                // But for safety, we can check if the specific key is available for this model.
+                if (!quotaManager.isKeyAvailable(apiKey, modelId)) continue;
 
                 for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
                     try {
@@ -142,7 +145,7 @@ QUY TẮC:
 
                         translatedFullContent += (translatedFullContent ? "\n\n" : "") + output.trim();
                         lastUsedModel = modelId;
-                        quotaManager.recordRequest(modelId);
+                        quotaManager.recordRequest(apiKey, modelId);
                         success = true;
                         break;
                     } catch (error: any) {
@@ -157,6 +160,9 @@ QUY TẮC:
                         
                         errorMsg = errorDetail;
                         
+                        // Record error in quota manager
+                        quotaManager.recordError(apiKey, modelId, errorMsg, status);
+                        
                         const isQuotaError = status === 429 || 
                                            errorMsg.includes("429") || 
                                            errorMsg.includes("quota") || 
@@ -164,12 +170,6 @@ QUY TẮC:
                                            errorMsg.includes("rate limit");
 
                         if (isQuotaError) {
-                            // Record in quota manager as well
-                            if (errorMsg.includes("quota") || errorMsg.includes("Resource has been exhausted")) {
-                                quotaManager.markAsDepleted(modelId);
-                            } else {
-                                quotaManager.recordRateLimit(modelId);
-                            }
                             throw error; 
                         }
                         
@@ -207,24 +207,12 @@ export const analyzeStoryContext = async (
             contents: `${GLOSSARY_ANALYSIS_PROMPT}\n\nTRUYỆN: ${storyInfo.title}\nNỘI DUNG:\n${sampleText}`,
             config: { temperature: 0.2 }
         });
-        quotaManager.recordRequest(modelId);
+        quotaManager.recordRequest(apiKey, modelId);
         return response.text || "";
     } catch (e: any) {
         const status = e.status || e.response?.status || 0;
         const errorMsg = e.message || "";
-        const isQuotaError = status === 429 || 
-                           errorMsg.includes("429") || 
-                                           errorMsg.includes("quota") || 
-                                           errorMsg.includes("Resource has been exhausted") ||
-                                           errorMsg.includes("rate limit");
-
-        if (isQuotaError) {
-            if (errorMsg.includes("quota") || errorMsg.includes("Resource has been exhausted")) {
-                quotaManager.markAsDepleted(modelId);
-            } else {
-                quotaManager.recordRateLimit(modelId);
-            }
-        }
+        quotaManager.recordError(apiKey, modelId, errorMsg, status);
         throw e;
     }
 };
