@@ -952,9 +952,11 @@ const App: React.FC = () => {
                                         <span className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full ${color}`}>{label}</span>
                                         {ch.status === FileStatus.COMPLETED && !isSelectionMode && <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-2xl"><Eye className="w-5 h-5" /></div>}
                                     </div>
-                                    {ch.status === FileStatus.ERROR && ch.errorMessage && (
+                                    {ch.status === FileStatus.ERROR && (
                                         <div className="mt-2 p-2 bg-rose-50 rounded-xl border border-rose-100">
-                                            <p className="text-[10px] text-rose-600 font-bold leading-tight line-clamp-2 mb-2">{ch.errorMessage}</p>
+                                            <p className="text-[10px] text-rose-600 font-bold leading-tight line-clamp-3 mb-2">
+                                                {ch.errorMessage || "Lỗi không xác định trong quá trình dịch. Hãy thử lại."}
+                                            </p>
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); handleRetryChapter(ch.id); }}
                                                 className="w-full py-1.5 bg-rose-500 text-white text-[10px] font-bold rounded-lg hover:bg-rose-600 transition-all flex items-center justify-center gap-1"

@@ -128,13 +128,16 @@ QUY TẮC:
                         if (!output) {
                             const candidate = response.candidates?.[0];
                             if (candidate?.finishReason === 'SAFETY') {
-                                throw new Error("Nội dung bị chặn bởi bộ lọc an toàn của AI (Safety Filter).");
+                                throw new Error("Nội dung bị chặn bởi bộ lọc an toàn của AI (Safety Filter). Hãy thử điều chỉnh prompt hoặc từ điển.");
                             }
-                            throw new Error("AI trả về nội dung trống.");
+                            if (candidate?.finishReason === 'RECITATION') {
+                                throw new Error("Nội dung bị chặn do vi phạm bản quyền (Recitation).");
+                            }
+                            throw new Error(`AI trả về nội dung trống. Lý do: ${candidate?.finishReason || 'Không xác định'}`);
                         }
                         
                         if (isMostlyChinese(output) && chunk.length > 100) {
-                            throw new Error("AI trả về nội dung chưa dịch (vẫn còn tiếng Trung).");
+                            throw new Error("AI trả về nội dung chưa dịch (vẫn còn tiếng Trung). Có thể do prompt chưa đủ mạnh hoặc model đang gặp lỗi.");
                         }
 
                         translatedFullContent += (translatedFullContent ? "\n\n" : "") + output.trim();
@@ -144,7 +147,15 @@ QUY TẮC:
                         break;
                     } catch (error: any) {
                         const status = error.status || error.response?.status || 0;
-                        errorMsg = error.message || "Lỗi không xác định";
+                        let errorDetail = error.message || "Lỗi không xác định";
+                        
+                        if (status === 400) errorDetail = "Yêu cầu không hợp lệ (400). Kiểm tra lại API Key hoặc cấu hình.";
+                        if (status === 403) errorDetail = "API Key không có quyền truy cập hoặc bị cấm (403).";
+                        if (status === 404) errorDetail = "Model không tồn tại hoặc không khả dụng (404).";
+                        if (status === 500) errorDetail = "Lỗi máy chủ AI (500). Hãy thử lại sau.";
+                        if (status === 503) errorDetail = "Dịch vụ AI đang quá tải hoặc bảo trì (503).";
+                        
+                        errorMsg = errorDetail;
                         
                         const isQuotaError = status === 429 || 
                                            errorMsg.includes("429") || 
