@@ -138,11 +138,13 @@ const App: React.FC = () => {
     const now = Date.now();
     const sysKey = process.env.API_KEY;
     
-    // Check system key first if it's not in cooldown
-    if (sysKey && (!keyCooldowns[sysKey] || keyCooldowns[sysKey] < now)) return sysKey;
+    // Check system key first if it's a valid Gemini key and not in cooldown
+    const isValidGeminiKey = (k: string) => k && k.startsWith("AIza") && k.length > 20;
+
+    if (sysKey && isValidGeminiKey(sysKey) && (!keyCooldowns[sysKey] || keyCooldowns[sysKey] < now)) return sysKey;
     
     // Then check user keys
-    const available = apiKeys.find(k => !keyCooldowns[k] || keyCooldowns[k] < now);
+    const available = apiKeys.find(k => isValidGeminiKey(k) && (!keyCooldowns[k] || keyCooldowns[k] < now));
     if (available) return available;
     
     return null;
@@ -655,6 +657,12 @@ const App: React.FC = () => {
                 // Put back to priority queue since it was interrupted
                 setPriorityQueue(prev => [...batchIds, ...prev]);
             } else {
+                // Fatal error or other error
+                const isFatal = status === 400 || status === 403 || status === 401;
+                if (isFatal) {
+                    markKeyAsCooldown(apiKey, 3600000); // 1 hour cooldown for bad keys
+                    addToast(`API Key lỗi (${status}), đã tạm dừng sử dụng key này.`, "error");
+                }
                 setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, chapters: p.chapters.map(c => batchIds.includes(c.id) ? { ...c, status: FileStatus.ERROR, errorMessage: e.message } : c) } : p));
             }
         } finally { 
