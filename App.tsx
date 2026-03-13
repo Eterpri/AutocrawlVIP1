@@ -411,6 +411,15 @@ const App: React.FC = () => {
     setSelectedChapterIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
+  const handleRetryChapter = (chapterId: string) => {
+    setProcessingQueue(prev => [...new Set([...prev, chapterId])]);
+    setIsProcessing(true);
+    setProjects(prev => prev.map(p => p.id === currentProjectId ? {
+        ...p, chapters: p.chapters.map(c => c.id === chapterId ? { ...c, status: FileStatus.IDLE, errorMessage: undefined } : c)
+    } : p));
+    addToast("Đã thêm chương vào hàng đợi dịch", "info");
+  };
+
   const selectAll = () => {
     if (!currentProject) return;
     if (selectedChapterIds.length === currentProject.chapters.length) {
@@ -709,6 +718,7 @@ const App: React.FC = () => {
                                 )}
                                 <div className="absolute top-0 right-0 p-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button onClick={(e) => { e.stopPropagation(); setViewingRawId(ch.id); }} title="Xem bản gốc" className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><ScrollText className="w-4 h-4" /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleRetryChapter(ch.id); }} title="Dịch lại" className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-600 hover:text-white transition-all"><RefreshCw className="w-4 h-4" /></button>
                                     {!isSelectionMode && (
                                       <button onClick={(e) => { e.stopPropagation(); updateProject(currentProject.id, { chapters: currentProject.chapters.filter(c => c.id !== ch.id) }); }} className="p-2 bg-rose-50 text-rose-500 rounded-xl hover:bg-rose-500 hover:text-white transition-all"><Trash2 className="w-4 h-4" /></button>
                                     )}
