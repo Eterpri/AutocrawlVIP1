@@ -439,6 +439,68 @@ const App: React.FC = () => {
     addToast(`Đã thêm ${errorChapterIds.length} chương lỗi vào hàng đợi`, "info");
   };
 
+  const handleExportBackup = async () => {
+    try {
+      const allProjects = await getAllProjects();
+      const backupData = {
+        projects: allProjects,
+        apiKeys: apiKeys,
+        timestamp: Date.now(),
+        version: "2.0"
+      };
+      
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `DichTruyenPro_Backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      addToast("Đã xuất file backup thành công", "success");
+    } catch (e) {
+      addToast("Lỗi khi xuất backup", "error");
+    }
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      if (!data.projects || !Array.isArray(data.projects)) {
+        throw new Error("Định dạng file không hợp lệ");
+      }
+      
+      if (confirm(`Bạn có chắc muốn import ${data.projects.length} truyện và ${data.apiKeys?.length || 0} API keys? Dữ liệu trùng ID sẽ bị ghi đè.`)) {
+        // Restore API Keys
+        if (data.apiKeys && Array.isArray(data.apiKeys)) {
+          setApiKeys(prev => {
+            const combined = [...prev, ...data.apiKeys];
+            return Array.from(new Set(combined));
+          });
+        }
+        
+        // Restore Projects to DB
+        for (const project of data.projects) {
+          await saveProject(project);
+        }
+        
+        // Refresh projects list
+        const updatedProjects = await getAllProjects();
+        setProjects(updatedProjects);
+        
+        addToast("Đã khôi phục dữ liệu thành công", "success");
+      }
+    } catch (e) {
+      addToast("Lỗi khi import backup: " + (e as Error).message, "error");
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   const selectAll = () => {
     if (!currentProject) return;
     if (selectedChapterIds.length === currentProject.chapters.length) {
@@ -859,6 +921,19 @@ const App: React.FC = () => {
                 <Info className="w-3 h-3 inline mr-1 mb-0.5" />
                 Hệ thống sẽ tự động xoay vòng Key khi một Key đạt giới hạn Quota. Khuyên dùng ít nhất 3-5 Keys cho truyện dài.
               </p>
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex gap-4">
+              <button 
+                onClick={handleExportBackup}
+                className="flex-1 flex items-center justify-center gap-2 p-4 bg-slate-100 text-slate-700 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+              >
+                <Save className="w-5 h-5" /> Sao lưu (Export)
+              </button>
+              <label className="flex-1 flex items-center justify-center gap-2 p-4 bg-emerald-50 text-emerald-700 rounded-2xl font-bold hover:bg-emerald-100 transition-all cursor-pointer">
+                <UploadCloud className="w-5 h-5" /> Khôi phục (Import)
+                <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
+              </label>
             </div>
           </div>
         </div>
