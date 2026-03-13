@@ -1,18 +1,26 @@
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, HarmBlockThreshold, HarmCategory } from '@google/genai';
 import { quotaManager } from './utils/quotaManager';
 import { MODEL_CONFIGS, GLOSSARY_ANALYSIS_PROMPT } from './constants';
 import { StoryInfo, FileItem } from './utils/types';
 
-const CHUNK_SIZE_LIMIT = 10000; 
+const CHUNK_SIZE_LIMIT = 8000; 
 const MAX_RETRY_ATTEMPTS = 2;
 
 const isMostlyChinese = (text: string): boolean => {
     if (!text) return false;
     const chineseChars = text.match(/[\u4e00-\u9fa5]/g) || [];
-    // If more than 10% of the text is Chinese characters, it's likely not translated
-    return (chineseChars.length / text.length) > 0.1; 
+    // If more than 25% of the text is Chinese characters, it's likely not translated
+    return (chineseChars.length / text.length) > 0.25; 
 };
+
+const safetySettings = [
+    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY, threshold: HarmBlockThreshold.BLOCK_NONE },
+];
 
 /**
  * Khởi tạo client AI với một API Key cụ thể.
@@ -109,11 +117,21 @@ QUY TẮC:
                         const response = await ai.models.generateContent({
                             model: modelId,
                             contents: fullPrompt,
-                            config: { systemInstruction, temperature: 0.1 }
+                            config: { 
+                                systemInstruction, 
+                                temperature: 0.1,
+                                safetySettings
+                            }
                         });
 
                         const output = response.text;
-                        if (!output) throw new Error("AI trả về nội dung trống.");
+                        if (!output) {
+                            const candidate = response.candidates?.[0];
+                            if (candidate?.finishReason === 'SAFETY') {
+                                throw new Error("Nội dung bị chặn bởi bộ lọc an toàn của AI (Safety Filter).");
+                            }
+                            throw new Error("AI trả về nội dung trống.");
+                        }
                         
                         if (isMostlyChinese(output) && chunk.length > 100) {
                             throw new Error("AI trả về nội dung chưa dịch (vẫn còn tiếng Trung).");
