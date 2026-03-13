@@ -266,7 +266,7 @@ const App: React.FC = () => {
     if (currentProjectId === id) setCurrentProjectId(null);
   };
 
-  const handleRefreshProject = (id: string, e: React.MouseEvent) => {
+  const handleRefreshProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     // Clear processing queue for this project
     const project = projects.find(p => p.id === id);
@@ -276,10 +276,14 @@ const App: React.FC = () => {
     setProcessingQueue(prev => prev.filter(id => !chapterIds.includes(id)));
     
     // Reset stuck processing status to idle
-    setProjects(prev => prev.map(p => p.id === id ? {
-      ...p,
-      chapters: p.chapters.map(c => c.status === FileStatus.PROCESSING ? { ...c, status: FileStatus.IDLE } : c)
-    } : p));
+    const updatedChapters = project.chapters.map(c => 
+      c.status === FileStatus.PROCESSING ? { ...c, status: FileStatus.IDLE } : c
+    );
+
+    const updatedProject = { ...project, chapters: updatedChapters, lastModified: Date.now() };
+    
+    await saveProject(updatedProject);
+    setProjects(prev => prev.map(p => p.id === id ? updatedProject : p));
 
     addToast("Đã làm mới trạng thái và xóa hàng chờ của truyện", "success");
   };
@@ -734,6 +738,8 @@ const App: React.FC = () => {
               const total = p.chapters.length;
               const translated = p.chapters.filter(c => c.status === FileStatus.COMPLETED).length;
               const errors = p.chapters.filter(c => c.status === FileStatus.ERROR).length;
+              const waiting = p.chapters.filter(c => c.status === FileStatus.IDLE).length;
+              const processing = p.chapters.filter(c => c.status === FileStatus.PROCESSING).length;
               
               return (
                 <div key={p.id} onClick={() => { setCurrentProjectId(p.id); setIsSidebarOpen(false); }} className={`group flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all ${currentProjectId === p.id ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-100'}`}>
@@ -741,10 +747,12 @@ const App: React.FC = () => {
                     <div className={`p-2.5 rounded-xl shrink-0 ${currentProjectId === p.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-200 text-slate-500'}`}><FileText className="w-4 h-4" /></div>
                     <div className="truncate">
                       <p className={`font-bold text-sm truncate ${currentProjectId === p.id ? 'text-indigo-900' : 'text-slate-700'}`}>{String(p.info.title || "Chưa đặt tên")}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[10px] font-bold text-slate-400">{total} chương</span>
-                        <span className="text-[10px] font-bold text-emerald-500">{translated}✓</span>
-                        {errors > 0 && <span className="text-[10px] font-bold text-rose-500">{errors}⚠</span>}
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                        <span className="text-[10px] font-bold text-slate-400" title="Tổng số chương">{total}Σ</span>
+                        <span className="text-[10px] font-bold text-emerald-500" title="Đã dịch">{translated}✓</span>
+                        <span className="text-[10px] font-bold text-amber-500" title="Chờ dịch">{waiting}⌛</span>
+                        {processing > 0 && <span className="text-[10px] font-bold text-indigo-500 animate-pulse" title="Đang xử lý">{processing}⚙</span>}
+                        {errors > 0 && <span className="text-[10px] font-bold text-rose-500" title="Lỗi">{errors}⚠</span>}
                       </div>
                     </div>
                   </div>
