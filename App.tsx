@@ -36,7 +36,8 @@ const App: React.FC = () => {
   const [projects, setProjects] = useState<StoryProject[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [processingQueue, setProcessingQueue] = useState<string[]>([]);
+  const [priorityQueue, setPriorityQueue] = useState<string[]>([]);
+  const [autoQueue, setAutoQueue] = useState<string[]>([]);
   const [activeWorkers, setActiveWorkers] = useState<number>(0);
   const [showLinkModal, setShowLinkModal] = useState<boolean>(false);
   const [showContextSetup, setShowContextSetup] = useState<boolean>(false);
@@ -50,6 +51,7 @@ const App: React.FC = () => {
   const isFetchingLinksRef = useRef<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [isSmartManagementEnabled, setIsSmartManagementEnabled] = useState<boolean>(true);
 
   // New features states
   const [crawlOption, setCrawlOption] = useState<'single' | 'multi'>('multi');
@@ -268,12 +270,13 @@ const App: React.FC = () => {
 
   const handleRefreshProject = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Clear processing queue for this project
+    // Clear processing queues for this project
     const project = projects.find(p => p.id === id);
     if (!project) return;
 
     const chapterIds = project.chapters.map(c => c.id);
-    setProcessingQueue(prev => prev.filter(id => !chapterIds.includes(id)));
+    setPriorityQueue(prev => prev.filter(id => !chapterIds.includes(id)));
+    setAutoQueue(prev => prev.filter(id => !chapterIds.includes(id)));
     
     // Reset stuck processing status to idle
     const updatedChapters = project.chapters.map(c => 
@@ -313,6 +316,17 @@ const App: React.FC = () => {
     updateProject(currentProject.id, { chapters: [...currentProject.chapters, ...newChapters] });
   };
 
+  // Tự động tối ưu hóa bối cảnh khi rảnh
+  useEffect(() => {
+    if (!isSmartManagementEnabled || isProcessing || isAnalyzing || !currentProject) return;
+    
+    // Nếu có hơn 10 chương mới dịch mà chưa được phân tích, hãy chạy phân tích
+    const translatedCount = currentProject.chapters.filter(c => c.status === FileStatus.COMPLETED).length;
+    if (translatedCount > 0 && translatedCount % 10 === 0 && !isAnalyzing) {
+        handleAIAnalyze();
+    }
+  }, [isSmartManagementEnabled, isProcessing, isAnalyzing, currentProject?.chapters.length]);
+
   const handleLinkCrawl = async (targetUrl?: string, chainCount: number = 1) => {
     if (!currentProject || isFetchingLinksRef.current) return;
     const startUrl = targetUrl || linkInput;
@@ -336,15 +350,10 @@ const App: React.FC = () => {
             ...p, chapters: [...p.chapters, newChapter], lastCrawlUrl: result.nextUrl || startUrl, lastModified: Date.now()
         } : p));
 
-        // If not "crawl only", add to queue
+        // If not "crawl only", add to auto queue (low priority)
         if (!isCrawlOnly) {
-          if (isProcessing) {
-            setProcessingQueue(prev => [...new Set([...prev, chapterId])]);
-          } else {
-            // Trigger auto processing if needed
-            // setProcessingQueue([chapterId]);
-            // setIsProcessing(true);
-          }
+          setAutoQueue(prev => [...new Set([...prev, chapterId])]);
+          if (!isProcessing) setIsProcessing(true);
         }
 
         // Chain crawling if multi is selected
@@ -407,13 +416,14 @@ const App: React.FC = () => {
         addToast("Không có chương mới cần dịch", "info");
         return;
     }
-    setProcessingQueue(prev => [...new Set([...prev, ...toProcess])]);
+    setPriorityQueue(prev => [...new Set([...prev, ...toProcess])]);
     setIsProcessing(true);
   }, [currentProject, isAutoCrawlEnabled, isCrawlOnly]);
 
   const stopTranslation = useCallback(() => {
     setIsProcessing(false); 
-    setProcessingQueue([]);
+    setPriorityQueue([]);
+    setAutoQueue([]);
     addToast("Đã dừng tiến trình dịch", "info");
   }, []);
 
@@ -434,12 +444,12 @@ const App: React.FC = () => {
   };
 
   const handleRetryChapter = (chapterId: string) => {
-    setProcessingQueue(prev => [...new Set([...prev, chapterId])]);
+    setPriorityQueue(prev => [...new Set([...prev, chapterId])]);
     setIsProcessing(true);
     setProjects(prev => prev.map(p => p.id === currentProjectId ? {
         ...p, chapters: p.chapters.map(c => c.id === chapterId ? { ...c, status: FileStatus.IDLE, errorMessage: undefined } : c)
     } : p));
-    addToast("Đã thêm chương vào hàng đợi dịch", "info");
+    addToast("Đã thêm chương vào hàng đợi ưu tiên", "info");
   };
 
   const handleRetryErrors = () => {
@@ -453,12 +463,12 @@ const App: React.FC = () => {
         return;
     }
 
-    setProcessingQueue(prev => [...new Set([...prev, ...errorChapterIds])]);
+    setPriorityQueue(prev => [...new Set([...prev, ...errorChapterIds])]);
     setIsProcessing(true);
     setProjects(prev => prev.map(p => p.id === currentProjectId ? {
         ...p, chapters: p.chapters.map(c => errorChapterIds.includes(c.id) ? { ...c, status: FileStatus.IDLE, errorMessage: undefined } : c)
     } : p));
-    addToast(`Đã thêm ${errorChapterIds.length} chương lỗi vào hàng đợi`, "info");
+    addToast(`Đã thêm ${errorChapterIds.length} chương lỗi vào hàng đợi ưu tiên`, "info");
   };
 
   const handleExportBackup = async () => {
@@ -536,25 +546,36 @@ const App: React.FC = () => {
     if (!isProcessing || !currentProjectId) return;
     
     // Kiểm soát hàng chờ: Chỉ tự động cào chương mới khi hàng chờ < 2
-    // Điều này giúp ưu tiên xử lý các chương lỗi hoặc chương cũ trước khi nạp thêm
     const shouldAutoCrawl = isAutoCrawlEnabled && 
                            currentProject?.lastCrawlUrl && 
                            !isFetchingLinksRef.current && 
-                           processingQueue.length < 2;
+                           (priorityQueue.length + autoQueue.length) < 2;
 
     if (shouldAutoCrawl) {
         handleLinkCrawl(currentProject.lastCrawlUrl);
     }
 
-    if (processingQueue.length === 0 && activeWorkers === 0 && !isFetchingLinksRef.current) {
+    if (priorityQueue.length === 0 && autoQueue.length === 0 && activeWorkers === 0 && !isFetchingLinksRef.current) {
         setIsProcessing(false);
         return;
     }
     
-    if (processingQueue.length === 0 || activeWorkers >= MAX_CONCURRENCY) return;
+    if ((priorityQueue.length === 0 && autoQueue.length === 0) || activeWorkers >= MAX_CONCURRENCY) return;
 
     const processBatch = async () => {
-        const batchIds = processingQueue.slice(0, BATCH_FILE_LIMIT);
+        // Pick from priority queue first, then auto queue
+        let batchIds: string[] = [];
+        let isFromPriority = false;
+
+        if (priorityQueue.length > 0) {
+          batchIds = priorityQueue.slice(0, BATCH_FILE_LIMIT);
+          setPriorityQueue(prev => prev.slice(BATCH_FILE_LIMIT));
+          isFromPriority = true;
+        } else {
+          batchIds = autoQueue.slice(0, BATCH_FILE_LIMIT);
+          setAutoQueue(prev => prev.slice(BATCH_FILE_LIMIT));
+        }
+
         const apiKey = getAvailableApiKey();
 
         if (!apiKey) {
@@ -563,7 +584,6 @@ const App: React.FC = () => {
             return; 
         }
 
-        setProcessingQueue(prev => prev.slice(BATCH_FILE_LIMIT));
         setActiveWorkers(prev => prev + 1);
 
         setProjects(prev => prev.map(p => p.id === currentProjectId ? {
@@ -608,7 +628,8 @@ const App: React.FC = () => {
             if (isQuotaError) {
                 markKeyAsCooldown(apiKey, 60000); 
                 addToast("Key hiện tại đạt giới hạn, tự động chuyển sang Key tiếp theo...", "info");
-                setProcessingQueue(prev => [...batchIds, ...prev]);
+                // Put back to priority queue since it was interrupted
+                setPriorityQueue(prev => [...batchIds, ...prev]);
             } else {
                 setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, chapters: p.chapters.map(c => batchIds.includes(c.id) ? { ...c, status: FileStatus.ERROR, errorMessage: e.message } : c) } : p));
             }
@@ -617,7 +638,7 @@ const App: React.FC = () => {
         }
     };
     processBatch();
-  }, [isProcessing, processingQueue, activeWorkers, currentProjectId, isAutoCrawlEnabled, currentProject?.lastCrawlUrl, getAvailableApiKey]);
+  }, [isProcessing, priorityQueue, autoQueue, activeWorkers, currentProjectId, isAutoCrawlEnabled, currentProject?.lastCrawlUrl, getAvailableApiKey]);
 
   const sortedChapters = useMemo(() => {
     if (!currentProject) return [];
@@ -789,6 +810,14 @@ const App: React.FC = () => {
             )}
             
             <button onClick={toggleWakeLock} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-semibold ${isWakeLockActive ? 'bg-amber-100 text-amber-700' : 'text-slate-600 hover:bg-slate-100'}`}>{isWakeLockActive ? <Sun className="w-5 h-5 animate-pulse" /> : <Moon className="w-5 h-5" />}{isWakeLockActive ? "Đang giữ sáng" : "Giữ sáng màn hình"}</button>
+            
+            <button 
+              onClick={() => setIsSmartManagementEnabled(!isSmartManagementEnabled)} 
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-semibold ${isSmartManagementEnabled ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-slate-600 hover:bg-slate-100'}`}
+            >
+              {isSmartManagementEnabled ? <Zap className="w-5 h-5 text-indigo-600" /> : <Zap className="w-5 h-5 text-slate-400" />}
+              {isSmartManagementEnabled ? "AI Quản Lý: BẬT" : "AI Quản Lý: TẮT"}
+            </button>
           </div>
         </div>
       </aside>
@@ -809,7 +838,15 @@ const App: React.FC = () => {
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight ml-1">API Status</span>
                 </div>
                 <button onClick={() => setShowContextSetup(true)} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all flex items-center gap-2 font-bold text-sm shadow-sm"><Brain className="w-5 h-5" /><span className="hidden sm:inline">Bối cảnh</span></button>
-                <button onClick={() => isProcessing ? stopTranslation() : startTranslation(false)} className={`flex items-center gap-2 ${isProcessing ? 'bg-rose-500 hover:bg-rose-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold py-3 px-6 rounded-2xl text-sm shadow-xl active:scale-95 transition-all disabled:opacity-50`}>{isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{isProcessing ? "Dừng" : "Dịch Ngay"}</button>
+                <button onClick={() => isProcessing ? stopTranslation() : startTranslation(false)} className={`flex items-center gap-2 ${isProcessing ? 'bg-rose-500 hover:bg-rose-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold py-3 px-6 rounded-2xl text-sm shadow-xl active:scale-95 transition-all disabled:opacity-50`}>
+                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {isProcessing ? (
+                    <div className="flex flex-col items-start leading-tight">
+                      <span>Dừng</span>
+                      <span className="text-[10px] opacity-80">Ưu tiên: {priorityQueue.length} | Tự động: {autoQueue.length}</span>
+                    </div>
+                  ) : "Dịch Ngay"}
+                </button>
             </div>
           )}
         </header>
@@ -1108,16 +1145,16 @@ const App: React.FC = () => {
         <div className="fixed bottom-10 left-10 z-[150] glass-panel p-5 rounded-[2.5rem] shadow-2xl flex items-center gap-5">
           <div className="relative">
             <div className="w-12 h-12 rounded-full border-4 border-slate-100 border-t-indigo-600 animate-spin" />
-            {processingQueue.length > 0 && (
+            {(priorityQueue.length + autoQueue.length) > 0 && (
               <div className="absolute -top-2 -right-2 bg-indigo-600 text-white text-[10px] font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
-                {processingQueue.length}
+                {(priorityQueue.length + autoQueue.length)}
               </div>
             )}
           </div>
           <div className="pr-4">
             <p className="font-bold text-sm text-slate-800 uppercase tracking-widest">{isProcessing ? 'Dịch tự động' : 'Cào dữ liệu'}</p>
             <p className="text-[10px] font-bold text-indigo-500 opacity-70">
-              {processingQueue.length > 2 ? 'HÀNG CHỜ ĐẦY - ĐANG TẠM DỪNG CÀO' : 'SYSTEM ACTIVE • MULTI KEY MODE'}
+              {(priorityQueue.length + autoQueue.length) > 2 ? 'HÀNG CHỜ ĐẦY - ĐANG TẠM DỪNG CÀO' : 'SYSTEM ACTIVE • MULTI KEY MODE'}
             </p>
           </div>
         </div>
