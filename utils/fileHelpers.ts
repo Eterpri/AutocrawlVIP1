@@ -25,11 +25,23 @@ const PAGINATION_KEYWORDS = ["下一页", "下一頁", "next page", "2/2", "3/3"
  */
 export const translateChapterTitle = (title: string): string => {
   let clean = title.trim();
+  
+  // Xóa các ký tự Trung Quốc phổ biến ở đầu/cuối tiêu đề (thường là tên truyện hoặc rác)
+  clean = clean.replace(/[\u4e00-\u9fa5]{2,}/g, (match) => {
+      // Nếu cụm từ Trung Quốc quá dài (>2 ký tự) và không phải là số thứ tự chương, xóa nó
+      if (!match.match(/[第章話节回]/)) return "";
+      return match;
+  });
+
   clean = clean.replace(/第\s*(\d+)\s*[章話节回]/g, 'Chương $1');
   clean = clean.replace(/Chapter\s*(\d+)/gi, 'Chương $1');
   const hanVietMap: Record<string, string> = { '一': '1', '二': '2', '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10' };
   clean = clean.replace(/第\s*([一二三四五六七八九十]+)\s*[章話节回]/g, (match, p1) => hanVietMap[p1] || p1);
-  return clean;
+  
+  // Xóa các ký tự đặc biệt thừa
+  clean = clean.replace(/^[:\s-]+/, "").replace(/[:\s-]+$/, "");
+  
+  return clean.trim() || "Chương mới";
 };
 
 const isChineseUrl = (url: string): boolean => {
