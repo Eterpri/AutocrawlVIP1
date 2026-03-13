@@ -107,7 +107,7 @@ QUY TẮC:
             const fullPrompt = `[DICT]\n${relevantDictionary}\n\n[CTX]\n${globalContext}\n\n[INST]\n${contextPrompt}\n${userPrompt}\n\n[RAW]\n${chunk}`;
             
             let success = false;
-            let errorMsg = "";
+            let errorMsg = "Không có phản hồi từ AI. Hãy kiểm tra kết nối mạng hoặc API Key.";
 
             for (const modelId of allowedModelIds) {
                 if (!quotaManager.isModelAvailable(modelId)) continue;

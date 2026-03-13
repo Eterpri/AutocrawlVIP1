@@ -599,8 +599,12 @@ const App: React.FC = () => {
         const apiKey = getAvailableApiKey();
 
         if (!apiKey) {
+            setProjects(prev => prev.map(p => p.id === currentProjectId ? {
+                ...p, chapters: p.chapters.map(c => batchIds.includes(c.id) ? { ...c, status: FileStatus.ERROR, errorMessage: "Hết API Key khả dụng hoặc Key bị giới hạn tốc độ." } : c)
+            } : p));
             addToast("Hết API Key khả dụng. Đang chờ 30 giây...", "warning");
             await new Promise(r => setTimeout(r, 30000));
+            setActiveWorkers(prev => Math.max(0, prev - 1));
             return; 
         }
 
