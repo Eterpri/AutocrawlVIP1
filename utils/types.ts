@@ -74,3 +74,15 @@ export interface ModelUsage {
   cooldownUntil: number;
   isDepleted: boolean;
 }
+
+export interface ApiKeyInfo {
+  key: string;
+  label?: string;
+  status: 'active' | 'cooldown' | 'depleted' | 'error';
+  lastUsed: number;
+  errorMessage?: string;
+  cooldownUntil: number;
+  successCount: number;
+  errorCount: number;
+  rpmUsage: number; // Current estimated RPM
+}
