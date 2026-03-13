@@ -513,14 +513,20 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isProcessing || !currentProjectId) return;
     
-    if (processingQueue.length === 0 && activeWorkers === 0) {
-        if (isAutoCrawlEnabled && currentProject?.lastCrawlUrl && !isFetchingLinksRef.current) {
-            handleLinkCrawl(currentProject.lastCrawlUrl);
-            return;
-        } else if (!isFetchingLinksRef.current) {
-            setIsProcessing(false);
-            return;
-        }
+    // Kiểm soát hàng chờ: Chỉ tự động cào chương mới khi hàng chờ < 2
+    // Điều này giúp ưu tiên xử lý các chương lỗi hoặc chương cũ trước khi nạp thêm
+    const shouldAutoCrawl = isAutoCrawlEnabled && 
+                           currentProject?.lastCrawlUrl && 
+                           !isFetchingLinksRef.current && 
+                           processingQueue.length < 2;
+
+    if (shouldAutoCrawl) {
+        handleLinkCrawl(currentProject.lastCrawlUrl);
+    }
+
+    if (processingQueue.length === 0 && activeWorkers === 0 && !isFetchingLinksRef.current) {
+        setIsProcessing(false);
+        return;
     }
     
     if (processingQueue.length === 0 || activeWorkers >= MAX_CONCURRENCY) return;
@@ -1069,7 +1075,24 @@ const App: React.FC = () => {
       )}
 
       <div className="fixed bottom-8 right-8 z-[200] flex flex-col gap-4 pointer-events-none">{toasts.map(t => (<div key={t.id} className={`pointer-events-auto flex items-center gap-4 px-8 py-5 rounded-[2rem] shadow-soft border-2 animate-in slide-in-from-right duration-500 min-w-[320px] backdrop-blur-md ${t.type === 'success' ? 'bg-emerald-50/90 text-emerald-800 border-emerald-100' : t.type === 'error' ? 'bg-rose-50/90 text-rose-800 border-rose-100' : 'bg-white/90 text-slate-800 border-slate-100'}`}><div className={`p-2 rounded-xl ${t.type === 'success' ? 'bg-emerald-500' : t.type === 'error' ? 'bg-rose-500' : 'bg-indigo-500'} text-white`}>{t.type === 'success' ? <CheckCircle className="w-5 h-5" /> : t.type === 'error' ? <AlertCircle className="w-5 h-5" /> : <Info className="w-5 h-5" />}</div><span className="font-bold text-sm">{t.message}</span></div>))}</div>
-      {!viewingFileId && (isFetchingLinks || isProcessing) && (<div className="fixed bottom-10 left-10 z-[150] glass-panel p-5 rounded-[2.5rem] shadow-2xl flex items-center gap-5"><div className="w-12 h-12 rounded-full border-4 border-slate-100 border-t-indigo-600 animate-spin" /><div className="pr-4"><p className="font-bold text-sm text-slate-800 uppercase tracking-widest">{isProcessing ? 'Dịch tự động' : 'Cào dữ liệu'}</p><p className="text-[10px] font-bold text-indigo-500 opacity-70">SYSTEM ACTIVE • MULTI KEY MODE</p></div></div>)}
+      {!viewingFileId && (isFetchingLinks || isProcessing) && (
+        <div className="fixed bottom-10 left-10 z-[150] glass-panel p-5 rounded-[2.5rem] shadow-2xl flex items-center gap-5">
+          <div className="relative">
+            <div className="w-12 h-12 rounded-full border-4 border-slate-100 border-t-indigo-600 animate-spin" />
+            {processingQueue.length > 0 && (
+              <div className="absolute -top-2 -right-2 bg-indigo-600 text-white text-[10px] font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-lg border-2 border-white">
+                {processingQueue.length}
+              </div>
+            )}
+          </div>
+          <div className="pr-4">
+            <p className="font-bold text-sm text-slate-800 uppercase tracking-widest">{isProcessing ? 'Dịch tự động' : 'Cào dữ liệu'}</p>
+            <p className="text-[10px] font-bold text-indigo-500 opacity-70">
+              {processingQueue.length > 2 ? 'HÀNG CHỜ ĐẦY - ĐANG TẠM DỪNG CÀO' : 'SYSTEM ACTIVE • MULTI KEY MODE'}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
