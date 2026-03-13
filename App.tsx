@@ -420,6 +420,25 @@ const App: React.FC = () => {
     addToast("Đã thêm chương vào hàng đợi dịch", "info");
   };
 
+  const handleRetryErrors = () => {
+    if (!currentProject) return;
+    const errorChapterIds = currentProject.chapters
+        .filter(c => c.status === FileStatus.ERROR)
+        .map(c => c.id);
+    
+    if (errorChapterIds.length === 0) {
+        addToast("Không có chương lỗi nào để dịch lại", "info");
+        return;
+    }
+
+    setProcessingQueue(prev => [...new Set([...prev, ...errorChapterIds])]);
+    setIsProcessing(true);
+    setProjects(prev => prev.map(p => p.id === currentProjectId ? {
+        ...p, chapters: p.chapters.map(c => errorChapterIds.includes(c.id) ? { ...c, status: FileStatus.IDLE, errorMessage: undefined } : c)
+    } : p));
+    addToast(`Đã thêm ${errorChapterIds.length} chương lỗi vào hàng đợi`, "info");
+  };
+
   const selectAll = () => {
     if (!currentProject) return;
     if (selectedChapterIds.length === currentProject.chapters.length) {
@@ -625,15 +644,28 @@ const App: React.FC = () => {
             <button onClick={() => setShowNewProjectModal(true)} className="w-full flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-6 rounded-2xl transition-all shadow-lg active:scale-95"><PlusCircle className="w-5 h-5" />Tạo Truyện Mới</button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-            {projects.map(p => (
-              <div key={p.id} onClick={() => { setCurrentProjectId(p.id); setIsSidebarOpen(false); }} className={`group flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all ${currentProjectId === p.id ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-100'}`}>
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <div className={`p-2.5 rounded-xl shrink-0 ${currentProjectId === p.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-200 text-slate-500'}`}><FileText className="w-4 h-4" /></div>
-                  <div className="truncate"><p className={`font-bold text-sm truncate ${currentProjectId === p.id ? 'text-indigo-900' : 'text-slate-700'}`}>{String(p.info.title || "Chưa đặt tên")}</p><p className="text-xs text-slate-400 font-medium">{p.chapters.length} chương</p></div>
+            {projects.map(p => {
+              const total = p.chapters.length;
+              const translated = p.chapters.filter(c => c.status === FileStatus.COMPLETED).length;
+              const errors = p.chapters.filter(c => c.status === FileStatus.ERROR).length;
+              
+              return (
+                <div key={p.id} onClick={() => { setCurrentProjectId(p.id); setIsSidebarOpen(false); }} className={`group flex items-center justify-between p-4 rounded-2xl cursor-pointer transition-all ${currentProjectId === p.id ? 'bg-indigo-50 border border-indigo-100' : 'hover:bg-slate-100'}`}>
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className={`p-2.5 rounded-xl shrink-0 ${currentProjectId === p.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-200 text-slate-500'}`}><FileText className="w-4 h-4" /></div>
+                    <div className="truncate">
+                      <p className={`font-bold text-sm truncate ${currentProjectId === p.id ? 'text-indigo-900' : 'text-slate-700'}`}>{String(p.info.title || "Chưa đặt tên")}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] font-bold text-slate-400">{total} chương</span>
+                        <span className="text-[10px] font-bold text-emerald-500">{translated}✓</span>
+                        {errors > 0 && <span className="text-[10px] font-bold text-rose-500">{errors}⚠</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id, e); }} className="opacity-0 group-hover:opacity-100 p-2 hover:bg-rose-100 text-rose-500 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
                 </div>
-                <button onClick={(e) => handleDeleteProject(p.id, e)} className="opacity-0 group-hover:opacity-100 p-2 hover:bg-rose-100 text-rose-500 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="p-6 border-t border-slate-100 space-y-3">
             <button 
@@ -679,6 +711,7 @@ const App: React.FC = () => {
                         </div>
                         
                         <div className="flex gap-2 bg-white p-2 rounded-3xl shadow-md border-2 border-slate-100">
+                            <button onClick={handleRetryErrors} className="flex items-center gap-2 bg-rose-50 text-rose-600 p-3 rounded-2xl hover:bg-rose-100 font-bold transition-all"><RefreshCw className="w-5 h-5" />Dịch lỗi</button>
                             <button onClick={() => setIsSelectionMode(!isSelectionMode)} className={`flex items-center gap-2 p-3 rounded-2xl font-bold transition-all ${isSelectionMode ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
                                 {isSelectionMode ? <CheckSquare className="w-5 h-5" /> : <SquareIcon className="w-5 h-5" />}
                                 {isSelectionMode ? 'Hủy chọn' : 'Chọn nhiều'}
