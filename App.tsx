@@ -46,7 +46,14 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   
   const [linkInput, setLinkInput] = useState<string>("");
-  const [isAutoCrawlEnabled, setIsAutoCrawlEnabled] = useState<boolean>(true);
+  const [isAutoCrawlEnabled, setIsAutoCrawlEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('IS_AUTO_CRAWL_ENABLED');
+    return saved === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('IS_AUTO_CRAWL_ENABLED', String(isAutoCrawlEnabled));
+  }, [isAutoCrawlEnabled]);
   const [isFetchingLinks, setIsFetchingLinks] = useState<boolean>(false);
   const isFetchingLinksRef = useRef<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
@@ -444,12 +451,15 @@ const App: React.FC = () => {
   };
 
   const handleRetryChapter = (chapterId: string) => {
-    setPriorityQueue(prev => [...new Set([...prev, chapterId])]);
-    setIsProcessing(true);
+    // Reset status in state immediately to show feedback
     setProjects(prev => prev.map(p => p.id === currentProjectId ? {
         ...p, chapters: p.chapters.map(c => c.id === chapterId ? { ...c, status: FileStatus.IDLE, errorMessage: undefined } : c)
     } : p));
-    addToast("Đã thêm chương vào hàng đợi ưu tiên", "info");
+    
+    // Add to priority queue
+    setPriorityQueue(prev => [...new Set([...prev, chapterId])]);
+    setIsProcessing(true);
+    addToast("Đã đưa chương vào hàng đợi ưu tiên", "info");
   };
 
   const handleRetryErrors = () => {
@@ -463,12 +473,14 @@ const App: React.FC = () => {
         return;
     }
 
-    setPriorityQueue(prev => [...new Set([...prev, ...errorChapterIds])]);
-    setIsProcessing(true);
+    // Reset status for all error chapters
     setProjects(prev => prev.map(p => p.id === currentProjectId ? {
         ...p, chapters: p.chapters.map(c => errorChapterIds.includes(c.id) ? { ...c, status: FileStatus.IDLE, errorMessage: undefined } : c)
     } : p));
-    addToast(`Đã thêm ${errorChapterIds.length} chương lỗi vào hàng đợi ưu tiên`, "info");
+
+    setPriorityQueue(prev => [...new Set([...prev, ...errorChapterIds])]);
+    setIsProcessing(true);
+    addToast(`Đã đưa ${errorChapterIds.length} chương lỗi vào hàng đợi ưu tiên`, "info");
   };
 
   const handleExportBackup = async () => {
@@ -545,22 +557,25 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isProcessing || !currentProjectId) return;
     
-    // Kiểm soát hàng chờ: Chỉ tự động cào chương mới khi hàng chờ < 2
+    // Kiểm soát hàng chờ: Chỉ tự động cào chương mới khi hàng chờ < 2 và KHÔNG có tác vụ ưu tiên
     const shouldAutoCrawl = isAutoCrawlEnabled && 
                            currentProject?.lastCrawlUrl && 
                            !isFetchingLinksRef.current && 
+                           priorityQueue.length === 0 &&
                            (priorityQueue.length + autoQueue.length) < 2;
 
     if (shouldAutoCrawl) {
         handleLinkCrawl(currentProject.lastCrawlUrl);
     }
 
-    if (priorityQueue.length === 0 && autoQueue.length === 0 && activeWorkers === 0 && !isFetchingLinksRef.current) {
+    const effectiveQueueLength = priorityQueue.length + (isAutoCrawlEnabled ? autoQueue.length : 0);
+
+    if (effectiveQueueLength === 0 && activeWorkers === 0 && !isFetchingLinksRef.current) {
         setIsProcessing(false);
         return;
     }
     
-    if ((priorityQueue.length === 0 && autoQueue.length === 0) || activeWorkers >= MAX_CONCURRENCY) return;
+    if (effectiveQueueLength === 0 || activeWorkers >= MAX_CONCURRENCY) return;
 
     const processBatch = async () => {
         // Pick from priority queue first, then auto queue
@@ -571,9 +586,14 @@ const App: React.FC = () => {
           batchIds = priorityQueue.slice(0, BATCH_FILE_LIMIT);
           setPriorityQueue(prev => prev.slice(BATCH_FILE_LIMIT));
           isFromPriority = true;
-        } else {
+        } else if (isAutoCrawlEnabled && autoQueue.length > 0) {
           batchIds = autoQueue.slice(0, BATCH_FILE_LIMIT);
           setAutoQueue(prev => prev.slice(BATCH_FILE_LIMIT));
+        }
+
+        if (batchIds.length === 0) {
+          setActiveWorkers(prev => Math.max(0, prev - 1));
+          return;
         }
 
         const apiKey = getAvailableApiKey();
@@ -837,6 +857,16 @@ const App: React.FC = () => {
                   </div>
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight ml-1">API Status</span>
                 </div>
+                <div className="flex items-center gap-2 mr-2">
+                  <button 
+                    onClick={() => setIsAutoCrawlEnabled(!isAutoCrawlEnabled)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold transition-all border-2 ${isAutoCrawlEnabled ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                    title="Tự động cào chương mới khi dịch xong"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isAutoCrawlEnabled && isProcessing ? 'animate-spin' : ''}`} />
+                    {isAutoCrawlEnabled ? "AUTO: BẬT" : "AUTO: TẮT"}
+                  </button>
+                </div>
                 <button onClick={() => setShowContextSetup(true)} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all flex items-center gap-2 font-bold text-sm shadow-sm"><Brain className="w-5 h-5" /><span className="hidden sm:inline">Bối cảnh</span></button>
                 <button onClick={() => isProcessing ? stopTranslation() : startTranslation(false)} className={`flex items-center gap-2 ${isProcessing ? 'bg-rose-500 hover:bg-rose-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold py-3 px-6 rounded-2xl text-sm shadow-xl active:scale-95 transition-all disabled:opacity-50`}>
                   {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -923,7 +953,15 @@ const App: React.FC = () => {
                                         {ch.status === FileStatus.COMPLETED && !isSelectionMode && <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-2xl"><Eye className="w-5 h-5" /></div>}
                                     </div>
                                     {ch.status === FileStatus.ERROR && ch.errorMessage && (
-                                        <p className="text-[10px] text-rose-500 font-bold leading-tight">{ch.errorMessage}</p>
+                                        <div className="mt-2 p-2 bg-rose-50 rounded-xl border border-rose-100">
+                                            <p className="text-[10px] text-rose-600 font-bold leading-tight line-clamp-2 mb-2">{ch.errorMessage}</p>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleRetryChapter(ch.id); }}
+                                                className="w-full py-1.5 bg-rose-500 text-white text-[10px] font-bold rounded-lg hover:bg-rose-600 transition-all flex items-center justify-center gap-1"
+                                            >
+                                                <RefreshCw className="w-3 h-3" /> Thử lại ngay
+                                            </button>
+                                        </div>
                                     )}
                                 </div>
                             </div>
