@@ -266,6 +266,24 @@ const App: React.FC = () => {
     if (currentProjectId === id) setCurrentProjectId(null);
   };
 
+  const handleRefreshProject = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Clear processing queue for this project
+    const project = projects.find(p => p.id === id);
+    if (!project) return;
+
+    const chapterIds = project.chapters.map(c => c.id);
+    setProcessingQueue(prev => prev.filter(id => !chapterIds.includes(id)));
+    
+    // Reset stuck processing status to idle
+    setProjects(prev => prev.map(p => p.id === id ? {
+      ...p,
+      chapters: p.chapters.map(c => c.status === FileStatus.PROCESSING ? { ...c, status: FileStatus.IDLE } : c)
+    } : p));
+
+    addToast("Đã làm mới trạng thái và xóa hàng chờ của truyện", "success");
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!currentProject || !e.target.files?.length) return;
     const files = e.target.files;
@@ -730,7 +748,10 @@ const App: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id, e); }} className="opacity-0 group-hover:opacity-100 p-2 hover:bg-rose-100 text-rose-500 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={(e) => handleRefreshProject(p.id, e)} title="Làm mới trạng thái" className="p-2 hover:bg-indigo-100 text-indigo-500 rounded-xl transition-all"><RefreshCw className="w-4 h-4" /></button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id, e); }} title="Xóa truyện" className="p-2 hover:bg-rose-100 text-rose-500 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
+                  </div>
                 </div>
               );
             })}
