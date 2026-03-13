@@ -253,23 +253,75 @@ export const generateEpub = async (files: FileItem[], story: StoryInfo): Promise
     
     let manifest = "";
     let spine = "";
+    let navLinks = "";
+    let ncxPoints = "";
     const sorted = [...files].sort((a,b)=>a.orderIndex-b.orderIndex).filter(f=>f.status===FileStatus.COMPLETED);
 
     sorted.forEach((f, i) => {
         const id = `ch${i+1}`;
+        const fileName = `Text/${id}.xhtml`;
         const xhtml = `<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html><html xmlns="http://www.w3.org/1999/xhtml">
 <head><title>${f.name}</title><link href="../Styles/style.css" rel="stylesheet" type="text/css"/></head>
 <body><h2>${f.name}</h2>${(f.translatedContent||'').split('\n').filter(l=>l.trim()).map(l=>`<p>${l.trim()}</p>`).join('')}</body></html>`;
-        oebps.file(`Text/${id}.xhtml`, xhtml);
-        manifest += `<item id="${id}" href="Text/${id}.xhtml" media-type="application/xhtml+xml"/>\n`;
+        oebps.file(fileName, xhtml);
+        manifest += `<item id="${id}" href="${fileName}" media-type="application/xhtml+xml"/>\n`;
         spine += `<itemref idref="${id}"/>\n`;
+        navLinks += `<li><a href="${fileName}">${f.name}</a></li>\n`;
+        ncxPoints += `<navPoint id="${id}" playOrder="${i+1}"><navLabel><text>${f.name}</text></navLabel><content src="${fileName}"/></navPoint>\n`;
     });
+
+    // EPUB 3 Navigation Document
+    const navXhtml = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>Mục lục</title><style>nav#toc ol { list-style-type: none; padding-left: 0; } nav#toc a { text-decoration: none; color: inherit; }</style></head>
+<body>
+  <nav epub:type="toc" id="toc">
+    <h1>Mục lục</h1>
+    <ol>
+      ${navLinks}
+    </ol>
+  </nav>
+</body>
+</html>`;
+    oebps.file("Text/nav.xhtml", navXhtml);
+
+    // NCX for backward compatibility
+    const ncx = `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="id"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>${story.title}</text></docTitle>
+  <navMap>
+    ${ncxPoints}
+  </navMap>
+</ncx>`;
+    oebps.file("toc.ncx", ncx);
 
     oebps.file("content.opf", `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${story.title}</dc:title><dc:creator>${story.author}</dc:creator><dc:language>vi</dc:language><meta property="dcterms:modified">${new Date().toISOString().replace(/\..+$/, "Z")}</meta></metadata>
-<manifest><item id="css" href="Styles/style.css" media-type="text/css"/>${manifest}</manifest>
-<spine>${spine}</spine></package>`);
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:title>${story.title}</dc:title>
+  <dc:creator>${story.author}</dc:creator>
+  <dc:language>vi</dc:language>
+  <dc:identifier id="id">uuid:${crypto.randomUUID()}</dc:identifier>
+  <meta property="dcterms:modified">${new Date().toISOString().replace(/\..+$/, "Z")}</meta>
+</metadata>
+<manifest>
+  <item id="css" href="Styles/style.css" media-type="text/css"/>
+  <item id="nav" href="Text/nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+  <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+  ${manifest}
+</manifest>
+<spine toc="ncx">
+  <itemref idref="nav"/>
+  ${spine}
+</spine>
+</package>`);
 
     zip.folder("META-INF")?.file("container.xml", `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
 
