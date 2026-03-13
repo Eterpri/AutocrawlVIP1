@@ -675,6 +675,22 @@ const App: React.FC = () => {
               {apiKeys.length > 0 ? <ShieldCheck className="w-5 h-5 text-emerald-600" /> : <Key className="w-5 h-5 text-rose-500" />}
               {apiKeys.length > 0 ? `${apiKeys.length} API Key Sẵn Sàng` : "Chưa Thiết Lập Key"}
             </button>
+            
+            {apiKeys.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-2 py-1">
+                {apiKeys.map((key, idx) => {
+                  const isCoolingDown = keyCooldowns[key] && keyCooldowns[key] > Date.now();
+                  return (
+                    <div 
+                      key={idx} 
+                      title={isCoolingDown ? "Đang chờ (Cooldown)" : "Sẵn sàng"}
+                      className={`w-2.5 h-2.5 rounded-full shadow-sm transition-all ${isCoolingDown ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            
             <button onClick={toggleWakeLock} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all font-semibold ${isWakeLockActive ? 'bg-amber-100 text-amber-700' : 'text-slate-600 hover:bg-slate-100'}`}>{isWakeLockActive ? <Sun className="w-5 h-5 animate-pulse" /> : <Moon className="w-5 h-5" />}{isWakeLockActive ? "Đang giữ sáng" : "Giữ sáng màn hình"}</button>
           </div>
         </div>
@@ -685,6 +701,16 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4"><button onClick={() => setIsSidebarOpen(true)} className="lg:hidden p-2.5 hover:bg-slate-100 rounded-2xl transition-all"><Menu className="w-6 h-6 text-slate-600" /></button><h2 className="font-display font-bold text-xl text-slate-800 truncate max-w-[150px] sm:max-w-md">{currentProject ? String(currentProject.info.title) : "AI Novel Pro"}</h2></div>
           {currentProject && (
             <div className="flex items-center gap-3">
+                <div className="hidden md:flex items-center gap-1.5 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200">
+                  <div className="flex gap-1">
+                    {apiKeys.slice(0, 5).map((key, i) => {
+                      const isCoolingDown = keyCooldowns[key] && keyCooldowns[key] > Date.now();
+                      return <div key={i} className={`w-2 h-2 rounded-full ${isCoolingDown ? 'bg-amber-400' : 'bg-emerald-500'}`} />;
+                    })}
+                    {apiKeys.length > 5 && <span className="text-[10px] font-bold text-slate-400">+{apiKeys.length - 5}</span>}
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-tight ml-1">API Status</span>
+                </div>
                 <button onClick={() => setShowContextSetup(true)} className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-100 transition-all flex items-center gap-2 font-bold text-sm shadow-sm"><Brain className="w-5 h-5" /><span className="hidden sm:inline">Bối cảnh</span></button>
                 <button onClick={() => isProcessing ? stopTranslation() : startTranslation(false)} className={`flex items-center gap-2 ${isProcessing ? 'bg-rose-500 hover:bg-rose-600' : 'bg-indigo-600 hover:bg-indigo-700'} text-white font-bold py-3 px-6 rounded-2xl text-sm shadow-xl active:scale-95 transition-all disabled:opacity-50`}>{isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{isProcessing ? "Dừng" : "Dịch Ngay"}</button>
             </div>
