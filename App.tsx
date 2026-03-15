@@ -3,7 +3,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { 
   FileText, Download, Trash2, AlertCircle, CheckCircle, Loader2, Settings, Zap, Sparkles, ChevronDown, RefreshCw, Languages, Plus, Search, Link2, Book, Brain, Type, Volume2, VolumeX, SkipBack, SkipForward, LogOut, Eye, EyeOff, Menu, ScrollText, Key, ExternalLink, Github, HelpCircle, AlertTriangle, X, PlusCircle, History, Hourglass, Info, Wand2, FileArchive, ArrowRight, Play, Pause, Square, Sliders, Coffee, Sun, Moon, FileOutput, Save, BookOpen, ToggleLeft, ToggleRight, Wand, UploadCloud, Smartphone, Maximize2, Minimize2, MoreHorizontal, FileSearch, PlayCircle, ShieldCheck, CheckSquare, Square as SquareIcon, FileCode
 } from 'lucide-react';
-import { FileItem, FileStatus, StoryProject, ReaderSettings, ApiKeyInfo } from './utils/types';
+import { FileItem, FileStatus, StoryProject, ReaderSettings } from './utils/types';
 import { DEFAULT_PROMPT, MODEL_CONFIGS, AVAILABLE_LANGUAGES, AVAILABLE_GENRES, AVAILABLE_PERSONALITIES, AVAILABLE_SETTINGS, AVAILABLE_FLOWS, DEFAULT_DICTIONARY } from './constants';
 import { translateBatch, analyzeStoryContext } from './geminiService';
 import { createMergedFile, downloadTextFile, fetchContentFromUrl, unzipFiles, generateEpub, translateChapterTitle } from './utils/fileHelpers';
@@ -44,6 +44,12 @@ const App: React.FC = () => {
   const [showNewProjectModal, setShowNewProjectModal] = useState<boolean>(false);
   const [showTTSSettings, setShowTTSSettings] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
   
   const [linkInput, setLinkInput] = useState<string>("");
   const [isAutoCrawlEnabled, setIsAutoCrawlEnabled] = useState<boolean>(() => {
@@ -67,9 +73,14 @@ const App: React.FC = () => {
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
   
   // Multi API Key States
-  const [apiKeys, setApiKeys] = useState<ApiKeyInfo[]>(() => quotaManager.getApiKeys());
+  const [apiKeys, setApiKeys] = useState<string[]>(() => {
+    const saved = localStorage.getItem('GEMINI_API_KEYS');
+    if (saved) return JSON.parse(saved);
+    const oldKey = localStorage.getItem('CUSTOM_GEMINI_API_KEY') || localStorage.getItem('gemini_api_key');
+    return oldKey ? [oldKey] : [];
+  });
   const [apiKeyInput, setApiKeyInput] = useState<string>('');
-  const [apiKeyLabel, setApiKeyLabel] = useState<string>('');
+  const [keyCooldowns, setKeyCooldowns] = useState<Record<string, number>>({});
 
   const [isWakeLockActive, setIsWakeLockActive] = useState<boolean>(false);
   const wakeLockRef = useRef<any>(null);
@@ -110,56 +121,44 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    const unsubscribe = quotaManager.subscribe(() => {
-      setApiKeys(quotaManager.getApiKeys());
-    });
-    return unsubscribe;
-  }, []);
+    localStorage.setItem('GEMINI_API_KEYS', JSON.stringify(apiKeys));
+  }, [apiKeys]);
 
   const addApiKey = () => {
     if (!apiKeyInput.trim()) return;
-    if (apiKeys.some(k => k.key === apiKeyInput.trim())) {
+    if (apiKeys.includes(apiKeyInput.trim())) {
       addToast("Key này đã tồn tại trong danh sách", "warning");
       return;
     }
-    const newKey: ApiKeyInfo = {
-      key: apiKeyInput.trim(),
-      label: apiKeyLabel.trim() || `Key ${apiKeys.length + 1}`,
-      status: 'active',
-      lastUsed: 0,
-      cooldownUntil: 0,
-      successCount: 0,
-      errorCount: 0,
-      rpmUsage: 0
-    };
-    const updated = [...apiKeys, newKey];
-    setApiKeys(updated);
-    quotaManager.setApiKeys(updated);
+    setApiKeys(prev => [...prev, apiKeyInput.trim()]);
     setApiKeyInput('');
-    setApiKeyLabel('');
     addToast("Đã thêm API Key mới", "success");
   };
 
   const removeApiKey = (keyToRemove: string) => {
-    const updated = apiKeys.filter(k => k.key !== keyToRemove);
-    setApiKeys(updated);
-    quotaManager.setApiKeys(updated);
+    setApiKeys(prev => prev.filter(k => k !== keyToRemove));
     addToast("Đã xóa API Key", "info");
   };
 
-  const getAvailableApiKey = useCallback((modelId: string = 'gemini-3-flash-preview') => {
+  const getAvailableApiKey = useCallback(() => {
+    const now = Date.now();
     const sysKey = process.env.API_KEY;
+    
+    // Check system key first if it's a valid Gemini key and not in cooldown
     const isValidGeminiKey = (k: string) => k && k.startsWith("AIza") && k.length > 20;
 
-    // Try to get best key from quota manager
-    const bestKey = quotaManager.getBestKeyForModel(modelId);
-    if (bestKey) return bestKey;
-
-    // Fallback to system key if available and not explicitly blocked
-    if (sysKey && isValidGeminiKey(sysKey)) return sysKey;
+    if (sysKey && isValidGeminiKey(sysKey) && (!keyCooldowns[sysKey] || keyCooldowns[sysKey] < now)) return sysKey;
+    
+    // Then check user keys
+    const available = apiKeys.find(k => isValidGeminiKey(k) && (!keyCooldowns[k] || keyCooldowns[k] < now));
+    if (available) return available;
     
     return null;
-  }, [apiKeys]);
+  }, [apiKeys, keyCooldowns]);
+
+  const markKeyAsCooldown = (key: string, duration: number = 60000) => {
+    setKeyCooldowns(prev => ({ ...prev, [key]: Date.now() + duration }));
+  };
 
   useEffect(() => {
     const ua = navigator.userAgent;
@@ -216,13 +215,22 @@ const App: React.FC = () => {
     
     setIsAnalyzing(true);
     let success = false;
-    const modelId = 'gemini-3.1-pro-preview';
+    const triedKeys = new Set<string>();
 
     while (!success) {
-        const key = getAvailableApiKey(modelId);
+        const now = Date.now();
+        const sysKey = process.env.API_KEY;
+        let key: string | null = null;
+
+        // Manual selection logic to avoid stale closure of keyCooldowns
+        if (sysKey && !triedKeys.has(sysKey) && (!keyCooldowns[sysKey] || keyCooldowns[sysKey] < now)) {
+            key = sysKey;
+        } else {
+            key = apiKeys.find(k => !triedKeys.has(k) && (!keyCooldowns[k] || keyCooldowns[k] < now)) || null;
+        }
 
         if (!key) {
-            addToast("Hết API Key khả dụng cho model này. Vui lòng thêm hoặc chờ cooldown.", "error");
+            addToast("Hết API Key khả dụng. Vui lòng thêm hoặc chờ cooldown.", "error");
             break;
         }
 
@@ -232,7 +240,6 @@ const App: React.FC = () => {
             addToast("Phân tích AI hoàn tất!", "success");
             success = true;
         } catch (e: any) {
-            // Errors are already recorded in quotaManager inside analyzeStoryContext
             const status = e.status || e.response?.status || 0;
             const errorMsg = e.message || "";
             const isQuotaError = status === 429 || 
@@ -242,8 +249,9 @@ const App: React.FC = () => {
                                errorMsg.includes("rate limit");
 
             if (isQuotaError) {
+                markKeyAsCooldown(key, 60000); 
+                triedKeys.add(key);
                 addToast("Key hiện tại đạt giới hạn, đang thử chuyển sang Key tiếp theo...", "info");
-                // Loop will continue and getAvailableApiKey will pick a different key
             } else {
                 addToast(e.message, "error");
                 break;
@@ -641,7 +649,6 @@ const App: React.FC = () => {
                 return c;
             }) } : p));
         } catch (e: any) {
-            // Errors are already recorded in quotaManager inside translateBatch
             const status = e.status || e.response?.status || 0;
             const errorMsg = e.message || "";
             const isQuotaError = status === 429 || 
@@ -651,6 +658,7 @@ const App: React.FC = () => {
                                errorMsg.includes("rate limit");
 
             if (isQuotaError) {
+                markKeyAsCooldown(apiKey, 60000); 
                 addToast("Key hiện tại đạt giới hạn, tự động chuyển sang Key tiếp theo...", "info");
                 // Put back to priority queue since it was interrupted
                 setPriorityQueue(prev => [...batchIds, ...prev]);
@@ -658,6 +666,7 @@ const App: React.FC = () => {
                 // Fatal error or other error
                 const isFatal = status === 400 || status === 403 || status === 401;
                 if (isFatal) {
+                    markKeyAsCooldown(apiKey, 3600000); // 1 hour cooldown for bad keys
                     addToast(`API Key lỗi (${status}), đã tạm dừng sử dụng key này.`, "error");
                 }
                 setProjects(prev => prev.map(p => p.id === currentProjectId ? { ...p, chapters: p.chapters.map(c => batchIds.includes(c.id) ? { ...c, status: FileStatus.ERROR, errorMessage: e.message } : c) } : p));
@@ -825,14 +834,13 @@ const App: React.FC = () => {
             
             {apiKeys.length > 0 && (
               <div className="flex flex-wrap gap-1.5 px-2 py-1">
-                {apiKeys.map((keyInfo, idx) => {
-                  const isCoolingDown = keyInfo.status === 'cooldown' || keyInfo.cooldownUntil > Date.now();
-                  const isDepleted = keyInfo.status === 'depleted';
+                {apiKeys.map((key, idx) => {
+                  const isCoolingDown = keyCooldowns[key] && keyCooldowns[key] > currentTime;
                   return (
                     <div 
                       key={idx} 
-                      title={`${keyInfo.label || 'Key'}: ${isDepleted ? 'Hết Quota' : isCoolingDown ? 'Đang chờ' : 'Sẵn sàng'}`}
-                      className={`w-2.5 h-2.5 rounded-full shadow-sm transition-all ${isDepleted ? 'bg-rose-500' : isCoolingDown ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`}
+                      title={isCoolingDown ? "Đang chờ (Cooldown)" : "Sẵn sàng"}
+                      className={`w-2.5 h-2.5 rounded-full shadow-sm transition-all ${isCoolingDown ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`}
                     />
                   );
                 })}
@@ -859,10 +867,9 @@ const App: React.FC = () => {
             <div className="flex items-center gap-3">
                 <div className="hidden md:flex items-center gap-1.5 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200">
                   <div className="flex gap-1">
-                    {apiKeys.slice(0, 5).map((keyInfo, i) => {
-                      const isCoolingDown = keyInfo.status === 'cooldown' || keyInfo.cooldownUntil > Date.now();
-                      const isDepleted = keyInfo.status === 'depleted';
-                      return <div key={i} className={`w-2 h-2 rounded-full ${isDepleted ? 'bg-rose-500' : isCoolingDown ? 'bg-amber-400' : 'bg-emerald-500'}`} />;
+                    {apiKeys.slice(0, 5).map((key, i) => {
+                      const isCoolingDown = keyCooldowns[key] && keyCooldowns[key] > currentTime;
+                      return <div key={i} className={`w-2 h-2 rounded-full ${isCoolingDown ? 'bg-amber-400' : 'bg-emerald-500'}`} />;
                     })}
                     {apiKeys.length > 5 && <span className="text-[10px] font-bold text-slate-400">+{apiKeys.length - 5}</span>}
                   </div>
@@ -996,107 +1003,87 @@ const App: React.FC = () => {
             
             <div className="space-y-4">
               <label className="text-sm font-bold text-slate-700 px-1">Thêm Gemini API Key mới</label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="flex gap-3">
                 <input 
-                  type="text" 
-                  placeholder="Tên gợi nhớ (VD: Key 1)" 
-                  value={apiKeyLabel}
-                  onChange={(e) => setApiKeyLabel(e.target.value)}
-                  className="p-4 rounded-[1.2rem] bg-slate-50 border-2 border-slate-100 focus:border-indigo-500 outline-none text-sm transition-all"
+                  type="password" 
+                  placeholder="Dán AIza... Key tại đây" 
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  className="flex-1 p-5 rounded-[1.5rem] bg-slate-50 border-2 border-slate-100 focus:border-indigo-500 outline-none font-mono text-sm transition-all shadow-inner"
                 />
-                <div className="flex gap-2">
-                  <input 
-                    type="password" 
-                    placeholder="Dán AIza... Key tại đây" 
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    className="flex-1 p-4 rounded-[1.2rem] bg-slate-50 border-2 border-slate-100 focus:border-indigo-500 outline-none font-mono text-sm transition-all shadow-inner"
-                  />
-                  <button onClick={addApiKey} className="bg-indigo-600 text-white px-6 rounded-[1.2rem] font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shrink-0">
-                    <Plus className="w-5 h-5" />
-                  </button>
-                </div>
+                <button onClick={addApiKey} className="bg-indigo-600 text-white px-8 rounded-[1.5rem] font-bold hover:bg-indigo-700 transition-all flex items-center gap-2">
+                  <Plus className="w-5 h-5" /> Thêm
+                </button>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-              <div className="flex items-center justify-between px-1">
-                <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Danh sách Key ({apiKeys.length})</p>
-                <button onClick={() => quotaManager.reset()} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                  <RefreshCw className="w-3 h-3" /> Reset Status
+              <div className="flex items-center justify-between px-1 mb-2">
+                <p className="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest">Bảng Trạng Thái Key ({apiKeys.length})</p>
+                <button 
+                  onClick={() => {
+                    setKeyCooldowns({});
+                    addToast("Đã làm mới trạng thái tất cả API Key", "success");
+                  }} 
+                  className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-all"
+                >
+                  <RefreshCw className="w-3 h-3" /> Làm mới trạng thái
                 </button>
               </div>
+              
               {apiKeys.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
                   <p className="text-sm font-medium text-slate-400 italic">Chưa có API Key nào được thêm.</p>
                 </div>
               ) : (
-                apiKeys.map((keyInfo, index) => {
-                  const isCoolingDown = keyInfo.status === 'cooldown' || (keyInfo.cooldownUntil > Date.now());
-                  const isDepleted = keyInfo.status === 'depleted';
-                  const isError = keyInfo.status === 'error';
-                  
-                  let statusColor = 'bg-emerald-100 text-emerald-600';
-                  let statusLabel = 'Sẵn sàng';
-                  let Icon = ShieldCheck;
-
-                  if (isDepleted) {
-                    statusColor = 'bg-rose-100 text-rose-600';
-                    statusLabel = 'Hết Quota';
-                    Icon = AlertTriangle;
-                  } else if (isCoolingDown) {
-                    statusColor = 'bg-amber-100 text-amber-600';
-                    statusLabel = 'Đang Cooldown';
-                    Icon = Hourglass;
-                  } else if (isError) {
-                    statusColor = 'bg-slate-100 text-slate-500';
-                    statusLabel = 'Lỗi';
-                    Icon = AlertCircle;
-                  }
-
-                  return (
-                    <div key={index} className="flex flex-col p-4 bg-white border border-slate-100 rounded-2xl group hover:shadow-md transition-all space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${statusColor}`}>
-                            <Icon className={`w-5 h-5 ${isCoolingDown ? 'animate-pulse' : ''}`} />
-                          </div>
-                          <div className="truncate">
-                            <p className="text-sm font-bold text-slate-800 truncate">{keyInfo.label || `Key ${index + 1}`}</p>
-                            <p className="text-[10px] font-mono text-slate-400 truncate">••••••••{keyInfo.key.slice(-8)}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-tight ${statusColor}`}>
-                            {statusLabel}
-                          </span>
-                          <button onClick={() => removeApiKey(keyInfo.key)} className="p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                      
-                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-50">
-                        <div className="text-center">
-                          <p className="text-[9px] font-bold text-slate-400 uppercase">Thành công</p>
-                          <p className="text-xs font-bold text-emerald-600">{keyInfo.successCount}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[9px] font-bold text-slate-400 uppercase">Thất bại</p>
-                          <p className="text-xs font-bold text-rose-600">{keyInfo.errorCount}</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-[9px] font-bold text-slate-400 uppercase">RPM Hiện tại</p>
-                          <p className="text-xs font-bold text-indigo-600">{keyInfo.rpmUsage}</p>
-                        </div>
-                      </div>
-                      
-                      {keyInfo.errorMessage && (
-                        <p className="text-[10px] text-rose-500 bg-rose-50 p-2 rounded-lg italic truncate">
-                          Lỗi: {keyInfo.errorMessage}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
+                        <th className="p-3 pl-4">API Key</th>
+                        <th className="p-3">Trạng thái</th>
+                        <th className="p-3">Thời gian chờ</th>
+                        <th className="p-3 text-right pr-4">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {apiKeys.map((key, index) => {
+                        const cooldownEnd = keyCooldowns[key];
+                        const isCoolingDown = cooldownEnd && cooldownEnd > currentTime;
+                        const remainingSeconds = isCoolingDown ? Math.ceil((cooldownEnd - currentTime) / 1000) : 0;
+                        
+                        return (
+                          <tr key={index} className="hover:bg-slate-50 transition-colors group">
+                            <td className="p-3 pl-4">
+                              <div className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${isCoolingDown ? 'bg-amber-400' : 'bg-emerald-500'}`} />
+                                <span className="text-xs font-mono font-bold text-slate-700">••••••••{key.slice(-8)}</span>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-tight ${isCoolingDown ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {isCoolingDown ? <Hourglass className="w-3 h-3" /> : <ShieldCheck className="w-3 h-3" />}
+                                {isCoolingDown ? 'Cooldown' : 'Sẵn sàng'}
+                              </span>
+                            </td>
+                            <td className="p-3 text-xs font-medium text-slate-500">
+                              {isCoolingDown ? <span className="text-amber-600 font-bold">{remainingSeconds}s</span> : '-'}
+                            </td>
+                            <td className="p-3 pr-4 text-right">
+                              <button 
+                                onClick={() => removeApiKey(key)} 
+                                title="Xóa Key này"
+                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
 
